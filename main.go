@@ -42,7 +42,8 @@ type Spot struct {
 	CountryCode     string
 	POTA            bool
 	POTAPark        string
-	ParkDescription string
+	POTARegion      string
+	POTADescription string
 }
 
 type HamalertPayload struct {
@@ -153,7 +154,7 @@ func sendSpot(channel string, spot Spot) {
 	// Is this a mode we care about
 	// TODO: Make this configurable ?
 	switch strings.ToLower(spot.Mode) {
-	case "ssb", "ft8", "phone", "lsb", "usb":
+	case "ssb", "ft8", "phone", "lsb", "usb", "", "(ssb)", "(ft8)", "(lsb)", "(usb)":
 		log.Printf("Mode %s for Callsign %s on %s is interesting, sending to discord\n", spot.Mode, spot.Callsign, spot.Frequency)
 	default:
 		log.Printf("Mode (%s) for Callsign (%s) on %s was not interesting, ignoring\n", spot.Mode, spot.Callsign, spot.Frequency)
@@ -169,6 +170,9 @@ func sendSpot(channel string, spot Spot) {
 **Frequency:** %s
 **Mode:** %s
 `, header, spot.Callsign, spot.Frequency, spot.Mode)
+	if spot.POTA {
+		message += fmt.Sprintf("**Park:** 🏞️ %s (%s - %s)", spot.POTAPark, spot.POTARegion, spot.POTADescription)
+	}
 	// Send it to discord
 	sendMessage(channel, message)
 }
@@ -242,11 +246,13 @@ func PotaSpots() {
 		if i < 10 {
 			// Create spot instance from POTASpot
 			spot := Spot{
-				Callsign:  pota_spot.Activator,
-				Mode:      *pota_spot.Mode,
-				Frequency: pota_spot.Frequency,
-				POTA:      true,
-				POTAPark:  pota_spot.Reference,
+				Callsign:        pota_spot.Activator,
+				Mode:            *pota_spot.Mode,
+				Frequency:       pota_spot.Frequency,
+				POTA:            true,
+				POTAPark:        pota_spot.Reference,
+				POTARegion:      *pota_spot.Name,
+				POTADescription: *pota_spot.LocationDesc,
 			}
 
 			// TODO: Check if the spot is QRT?
