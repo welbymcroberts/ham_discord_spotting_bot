@@ -357,43 +357,42 @@ func PotaSpots() {
 	if err != nil {
 		log.Println("Error getting pota activations,", err)
 	}
-	for i, pota_spot := range spots {
-		if i < 100 {
-			// Create spot instance from POTASpot
-			spot := Spot{
-				Callsign:        pota_spot.Activator,
-				Mode:            *pota_spot.Mode,
-				Frequency:       pota_spot.Frequency,
-				POTA:            true,
-				POTAPark:        pota_spot.Reference,
-				POTARegion:      *pota_spot.Name,
-				POTADescription: *pota_spot.LocationDesc,
-			}
-
-			// if there's a comment
-			if pota_spot.Comments != nil {
-				comment := strings.ToLower(*pota_spot.Comments)
-				// check if its QRT
-				if strings.Contains(comment, "qrt") {
-					// We do nothing with it
-					continue
-				}
-			}
-
-			// Check if the spot exists already
-			recent, err := checkSpotRecent(spot)
-			if err != nil {
-				log.Println("Error checking spot is recent", err)
-				continue
-			}
-
-			if recent {
-				// This is a recent spot, lets do nothing
-				continue
-			}
-
-			sendSpot(channel, spot)
+	for _, pota_spot := range spots {
+		// Create spot instance from POTASpot
+		spot := Spot{
+			Callsign:        pota_spot.Activator,
+			Mode:            *pota_spot.Mode,
+			Frequency:       pota_spot.Frequency,
+			POTA:            true,
+			POTAPark:        pota_spot.Reference,
+			POTARegion:      *pota_spot.Name,
+			POTADescription: *pota_spot.LocationDesc,
 		}
+
+		// if there's a comment
+		if pota_spot.Comments != nil {
+			comment := strings.ToLower(*pota_spot.Comments)
+			// check if its QRT
+			if strings.Contains(comment, "qrt") {
+				// We do nothing with it
+				continue
+			}
+		}
+
+		// Check if the spot exists already
+		recent, err := checkSpotRecent(spot)
+		if err != nil {
+			log.Println("Error checking spot is recent", err)
+			continue
+		}
+
+		if recent {
+			// This is a recent spot, lets do nothing
+			continue
+		}
+
+		sendSpot(channel, spot)
+
 	}
 }
 
@@ -439,7 +438,7 @@ func main() {
 
 	// Start POTA polling as a separate go routine
 	go func() {
-		// Create a ticker that ticks every 2 minutes
+		// Create a ticker that ticks every 1 minutes
 		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
 		PotaSpots()
