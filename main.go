@@ -228,7 +228,7 @@ func processMessages() {
 		if err != nil {
 			log.Println("Something went wrong sending message to discord", err)
 		}
-		log.Printf("Sent message to %s - message id %s", channel, raw_message.ID)
+		log.Printf("Sent message to %s - message id %s (%s)", channel, raw_message.ID, discordmessage.Message)
 	}
 }
 
