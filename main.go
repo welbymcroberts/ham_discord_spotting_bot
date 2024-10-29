@@ -25,6 +25,9 @@ var (
 	Redis *redis.Client
 )
 
+// Spots expire after 4 hours
+const SpotTTL = 4 * time.Hour
+
 type DiscordMessage struct {
 	Channel string
 	Message string
@@ -183,7 +186,6 @@ func sendMessage(channel string, content string) error {
 }
 
 func processMessages() {
-
 	for {
 		// List the size of the queue
 		count, err := Redis.LLen(ctx, "messages").Result()
@@ -199,11 +201,12 @@ func processMessages() {
 			continue
 		}
 
-		fmt.Printf("--- %d entires in queue", count)
+		fmt.Printf("\t\t%d entires in queue\n", count)
+
 		// pop a message off the queue
 		message, err := Redis.LPop(ctx, "messages").Result()
 		if err == redis.Nil {
-			// sleep 100ms if theres no work
+			// sleep 100ms if there's no work
 			time.Sleep(100 * time.Millisecond)
 			continue
 		} else if err != nil {
@@ -218,6 +221,8 @@ func processMessages() {
 			log.Printf("Unable to marshal message from JSON - Dropping: %v", err)
 			continue
 		}
+
+		// Send the message
 		raw_message, err := Discord.ChannelMessageSend(discordmessage.Channel, discordmessage.Message)
 		if err != nil {
 			log.Println("Something went wrong sending message to discord", err)
@@ -239,20 +244,39 @@ func sendSpot(channel string, spot Spot) {
 		return
 	}
 
-	// Set header based on if person is a member of discord or not
-	header := checkMember(spot)
+	// Check if the callsign has been spotted recently
+	exists, err := Redis.Exists(ctx, strings.ToUpper(spot.Callsign)+"-"+strings.ToLower(spot.Mode)+"-"+spot.Frequency).Result()
+	if err != nil {
+		log.Printf("Error checking callsign spot in Redis: %v", err)
+		return
+	}
 
-	// Create a message to send to discord
-	message := fmt.Sprintf(`%s
+	// If callsign-mode-frequency isnt in redis, treat it as a message we want to send
+	if exists == 0 {
+		// Set header based on if person is a member of discord or not
+		header := checkMember(spot)
+
+		// Create a message to send to discord
+		message := fmt.Sprintf(`%s
 **Callsign:** %s
 **Frequency:** %s
 **Mode:** %s
 `, header, spot.Callsign, spot.Frequency, spot.Mode)
-	if spot.POTA {
-		message += fmt.Sprintf("**Park:** 🏞️ %s (%s - %s)", spot.POTAPark, spot.POTARegion, spot.POTADescription)
+		if spot.POTA {
+			message += fmt.Sprintf("**Park:** 🏞️ %s (%s - %s)", spot.POTAPark, spot.POTARegion, spot.POTADescription)
+		}
+		// Send it to discord
+		sendMessage(channel, message)
+
+		// add to discord
+		err = Redis.Set(ctx, strings.ToUpper(spot.Callsign)+"-"+strings.ToLower(spot.Mode)+"-"+spot.Frequency, true, SpotTTL).Err()
+		if err != nil {
+			log.Printf("Error storing spot in Redis: %v", err)
+		}
+	} else {
+		log.Printf("Already have %s on %s with mode %s, skipping", spot.Callsign, spot.Mode, spot.Frequency)
 	}
-	// Send it to discord
-	sendMessage(channel, message)
+	return
 }
 
 func WebHookHandlerForHamAlert(w http.ResponseWriter, r *http.Request) {
@@ -310,6 +334,7 @@ func init() {
 	// Redis
 	RedisADDR := os.Getenv("HAM_DISCORD_SPOTTING_BOT_REDIS_ADDR")
 	Redis = redis.NewClient(&redis.Options{Addr: RedisADDR})
+
 }
 
 func UpdateDiscordMemberList() {
