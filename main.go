@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -232,12 +233,20 @@ func processMessages() {
 }
 
 func sendSpot(channel string, spot Spot) {
+
+	// We need to have a frequency of 54MHz or less
+	freq, err := strconv.Atoi(spot.Frequency)
+	if freq > 54000000 {
+		log.Printf("Frequncy is too high: %s", spot.Frequency)
+		return
+	}
+
 	// Is this a mode we care about
 	// TODO: Make this configurable ?
 	switch strings.ToLower(spot.Mode) {
-	case "ssb", "ft8", "phone", "lsb", "usb", "",
-		"(ssb)", "(ft8)", "(lsb)",
-		"(usb)", "ft4", "(ft4)":
+	case "ssb", "phone", "lsb", "usb", "",
+		"(ssb)", "(lsb)",
+		"(usb)":
 		log.Printf("Mode %s for Callsign %s on %s is interesting, sending to discord\n", spot.Mode, spot.Callsign, spot.Frequency)
 	default:
 		log.Printf("Mode (%s) for Callsign (%s) on %s was not interesting, ignoring\n", spot.Mode, spot.Callsign, spot.Frequency)
@@ -258,12 +267,12 @@ func sendSpot(channel string, spot Spot) {
 
 		// Create a message to send to discord
 		message := fmt.Sprintf(`%s
-**Callsign:** %s
+**Callsign:** [%s](https://www.qrz.com/db/%s)
 **Frequency:** %s
 **Mode:** %s
-`, header, spot.Callsign, spot.Frequency, spot.Mode)
+`, header, spot.Callsign, spot.Callsign, spot.Frequency, spot.Mode)
 		if spot.POTA {
-			message += fmt.Sprintf("**Park:** 🏞️ %s (%s - %s)", spot.POTAPark, spot.POTARegion, spot.POTADescription)
+			message += fmt.Sprintf("**Park:** 🏞️ [%s](https://pota.app/#/park/%s) (%s - %s)", spot.POTAPark, spot.POTAPark, spot.POTARegion, spot.POTADescription)
 		}
 		// Send it to discord
 		sendMessage(channel, message)
