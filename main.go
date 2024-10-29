@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
 	"github.com/joho/godotenv"
@@ -118,33 +119,92 @@ func checkSpotRecent(spot Spot) (bool, error) {
 	return false, nil
 }
 func checkMember(spot Spot) string {
+
+	member := false
+	callsign := strings.ToUpper(spot.Callsign)
+
+	if callsign == "K5KAB" {
+		return "# <:hamspot:1299208521316962376>🥃__**KB SPOTTED**__🥃<:hamspot:1299208521316962376>"
+	}
+	it := Redis.Scan(ctx, 0, fmt.Sprintf("members:*%s*", callsign), 10).Iterator()
+	for it.Next(ctx) {
+		member = true
+	}
 	// Check if the user is a member
-	switch strings.ToUpper(spot.Callsign) {
-	// TODO: check against env vars
-	case "W3LBY":
+	if member {
 		return "# <:hamspot:1299208521316962376>__**MEMBER SPOTTED**__<:hamspot:1299208521316962376>"
-	default:
+	} else {
 		return "## <:hamspot:1299208521316962376> New Spot"
 	}
 }
 
-func getGuildMembers() []string {
+func getGuildMembers() error {
 	guildID := os.Getenv("HAM_DISCORD_SPOTTING_BOT_GUILD")
 	if guildID == "" {
-		return nil
+		return errors.New("HAM_DISCORD_SPOTTING_BOT_GUILD is empty")
 	}
 
 	// Get a list of guild members, paginating
 	var paginate_start string
-	var member_list []string
+
 	for {
+		// Get a list of members
 		members, err := Discord.GuildMembers(guildID, paginate_start, 1000)
 		if err != nil {
 			log.Printf("error retrieving guild members: %v", err)
+			return err
 		}
-
+		// for each one
 		for _, member := range members {
-			member_list = append(member_list, member.User.Username)
+
+			// is it in redis already?
+			_, err := Redis.Get(ctx, "members:"+strings.ToUpper(member.Nick)).Result()
+			if errors.Is(err, redis.Nil) {
+				// Add member if it's not
+				err = Redis.Set(ctx, "members:"+strings.ToUpper(member.Nick), true, 24*time.Hour).Err()
+				if err != nil {
+					log.Printf("error adding member to list: %v", err)
+				}
+			} else if err != nil {
+				log.Fatalf("Error checking value: %v", err)
+			}
+
+			// is it in redis already?
+			_, err = Redis.Get(ctx, "members:"+strings.ToUpper(member.DisplayName())).Result()
+			if errors.Is(err, redis.Nil) {
+				// Add member if it's not
+				err = Redis.Set(ctx, "members:"+strings.ToUpper(member.DisplayName()), true, 24*time.Hour).Err()
+				if err != nil {
+					log.Printf("error adding member to list: %v", err)
+				}
+			} else if err != nil {
+				log.Fatalf("Error checking value: %v", err)
+			}
+
+			// is it in redis already?
+			_, err = Redis.Get(ctx, "members:"+strings.ToUpper(member.User.Username)).Result()
+			if errors.Is(err, redis.Nil) {
+				// Add member if it's not
+				err = Redis.Set(ctx, "members:"+strings.ToUpper(member.User.Username), true, 24*time.Hour).Err()
+				if err != nil {
+					log.Printf("error adding member to list: %v", err)
+				}
+			} else if err != nil {
+				log.Fatalf("Error checking value: %v", err)
+			}
+
+			// is it in redis already?
+			_, err = Redis.Get(ctx, "members:"+strings.ToUpper(member.User.GlobalName)).Result()
+			if errors.Is(err, redis.Nil) {
+				// Add member if it's not
+				err = Redis.Set(ctx, "members:"+strings.ToUpper(member.User.GlobalName), true, 24*time.Hour).Err()
+				if err != nil {
+					log.Printf("error adding member to list: %v", err)
+				}
+			} else if err != nil {
+				log.Fatalf("Error checking value: %v", err)
+			}
+
 		}
 
 		// If there's <1000 members we don't need to paginate
@@ -153,7 +213,7 @@ func getGuildMembers() []string {
 		}
 		paginate_start = members[len(members)-1].User.ID
 	}
-	return member_list
+	return nil
 }
 
 func queueMessage(message DiscordMessage) error {
@@ -224,11 +284,11 @@ func processMessages() {
 		}
 
 		// Send the message
-		raw_message, err := Discord.ChannelMessageSend(discordmessage.Channel, discordmessage.Message)
+		// TODO: raw_message, err := Discord.ChannelMessageSend(discordmessage.Channel, discordmessage.Message)
 		if err != nil {
 			log.Println("Something went wrong sending message to discord", err)
 		}
-		log.Printf("Sent message to %s - message id %s (%s)", channel, raw_message.ID, discordmessage.Message)
+		// TODO: log.Printf("Sent message to %s - message id %s (%s)", channel, raw_message.ID, discordmessage.Message)
 	}
 }
 
