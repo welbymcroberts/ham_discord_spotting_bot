@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
 	"github.com/joho/godotenv"
+	"github.com/redis/go-redis/v9"
 	"log"
 	"net/http"
 	"os"
@@ -17,7 +19,16 @@ var (
 	channel string
 	// Global discord instance
 	Discord *discordgo.Session
+	// Context for redis
+	ctx = context.Background()
+	// redis
+	Redis *redis.Client
 )
+
+type DiscordMessage struct {
+	Channel string
+	Message string
+}
 
 type POTASpot struct {
 	SpotID       int     `json:"spotId"`
@@ -141,20 +152,87 @@ func getGuildMembers() []string {
 	return member_list
 }
 
-func sendMessage(channel string, content string) {
-	// Send a message to a channel
-	message, err := Discord.ChannelMessageSend(channel, content)
+func queueMessage(message DiscordMessage) error {
+	// serialise the Discord Message to JSON
+	json, err := json.Marshal(message)
 	if err != nil {
-		log.Println("Something went wrong sending message to discord", err)
+		log.Printf("Unable to marshal message to JSON: %v", err)
+		return err
 	}
-	log.Printf("Sent message to %s - message id ", channel, message.ID)
+
+	// Be like salt n' peppa, and push it
+	err = Redis.RPush(ctx, "messages", json).Err()
+	if err != nil {
+		log.Printf("Failed to queue message: %v", err)
+		return err
+	}
+	return err
+}
+
+func sendMessage(channel string, content string) error {
+	// Create DiscordMessage instance
+	message := DiscordMessage{Channel: channel, Message: content}
+	// queue message
+	err := queueMessage(message)
+	if err != nil {
+		log.Printf("Error sending message to discord: %v", err)
+		return err
+	}
+	log.Printf("Queued message")
+	return nil
+}
+
+func processMessages() {
+
+	for {
+		// List the size of the queue
+		count, err := Redis.LLen(ctx, "messages").Result()
+		if err != nil {
+			log.Printf("Error getting queue count: %v", err)
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+
+		if count == 0 {
+			// sleep and return to start of forloop
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+
+		fmt.Printf("--- %d entires in queue", count)
+		// pop a message off the queue
+		message, err := Redis.LPop(ctx, "messages").Result()
+		if err == redis.Nil {
+			// sleep 100ms if theres no work
+			time.Sleep(100 * time.Millisecond)
+			continue
+		} else if err != nil {
+			log.Printf("Error processing messages: %v", err)
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+
+		// create the message from the json
+		var discordmessage DiscordMessage
+		if err := json.Unmarshal([]byte(message), &discordmessage); err != nil {
+			log.Printf("Unable to marshal message from JSON - Dropping: %v", err)
+			continue
+		}
+		raw_message, err := Discord.ChannelMessageSend(discordmessage.Channel, discordmessage.Message)
+		if err != nil {
+			log.Println("Something went wrong sending message to discord", err)
+		}
+		log.Printf("Sent message to %s - message id %s", channel, raw_message.ID)
+	}
 }
 
 func sendSpot(channel string, spot Spot) {
 	// Is this a mode we care about
 	// TODO: Make this configurable ?
 	switch strings.ToLower(spot.Mode) {
-	case "ssb", "ft8", "phone", "lsb", "usb", "", "(ssb)", "(ft8)", "(lsb)", "(usb)":
+	case "ssb", "ft8", "phone", "lsb", "usb", "",
+		"(ssb)", "(ft8)", "(lsb)",
+		"(usb)", "ft4", "(ft4)":
 		log.Printf("Mode %s for Callsign %s on %s is interesting, sending to discord\n", spot.Mode, spot.Callsign, spot.Frequency)
 	default:
 		log.Printf("Mode (%s) for Callsign (%s) on %s was not interesting, ignoring\n", spot.Mode, spot.Callsign, spot.Frequency)
@@ -191,7 +269,7 @@ func WebHookHandlerForHamAlert(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
 		return
 	}
-	// Return a HTTP 204 back to the client as we dont send any information back
+	// Return HTTP 204 back to the client as we don't send any information back
 	w.WriteHeader(http.StatusNoContent)
 
 	// Actually process what we're going to do with the webhook
@@ -229,6 +307,9 @@ func init() {
 	// Set the intents for the discord bot
 	Discord.Identify.Intents = discordgo.IntentsGuildMembers | discordgo.IntentsGuildMessages
 
+	// Redis
+	RedisADDR := os.Getenv("HAM_DISCORD_SPOTTING_BOT_REDIS_ADDR")
+	Redis = redis.NewClient(&redis.Options{Addr: RedisADDR})
 }
 
 func UpdateDiscordMemberList() {
@@ -243,7 +324,7 @@ func PotaSpots() {
 		log.Println("Error getting pota activations,", err)
 	}
 	for i, pota_spot := range spots {
-		if i < 10 {
+		if i < 100 {
 			// Create spot instance from POTASpot
 			spot := Spot{
 				Callsign:        pota_spot.Activator,
@@ -255,7 +336,15 @@ func PotaSpots() {
 				POTADescription: *pota_spot.LocationDesc,
 			}
 
-			// TODO: Check if the spot is QRT?
+			// if there's a comment
+			if pota_spot.Comments != nil {
+				comment := strings.ToLower(*pota_spot.Comments)
+				// check if its QRT
+				if strings.Contains(comment, "qrt") {
+					// We do nothing with it
+					continue
+				}
+			}
 
 			// Check if the spot exists already
 			recent, err := checkSpotRecent(spot)
@@ -314,12 +403,12 @@ func main() {
 		}
 	}()
 
-	// Start POTA polling as a separate go func
+	// Start POTA polling as a separate go routine
 	go func() {
-		// Create a ticker that ticks every 60 seconds
-		ticker := time.NewTicker(60 * time.Second)
+		// Create a ticker that ticks every 2 minutes
+		ticker := time.NewTicker(2 * time.Minute)
 		defer ticker.Stop()
-
+		PotaSpots()
 		for {
 			select {
 			// Then on each tick run the POTA code
@@ -328,6 +417,9 @@ func main() {
 			}
 		}
 	}()
+
+	// Start go routine to process queued messages
+	go processMessages()
 
 	// Start a Web server
 	addr := os.Getenv("HAM_DISCORD_SPOTTING_BOT_LISTENADDR")
