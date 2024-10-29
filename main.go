@@ -431,7 +431,7 @@ func main() {
 	// Start POTA polling as a separate go routine
 	go func() {
 		// Create a ticker that ticks every 2 minutes
-		ticker := time.NewTicker(2 * time.Minute)
+		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
 		PotaSpots()
 		for {
