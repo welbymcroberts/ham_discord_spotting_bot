@@ -18,7 +18,8 @@ import (
 
 var (
 	// The channel that we're sending to
-	channel string
+	channel       string
+	memberChannel string
 	// Global discord instance
 	Discord *discordgo.Session
 	// Context for redis
@@ -118,13 +119,13 @@ func checkSpotRecent(spot Spot) (bool, error) {
 	// TODO: Take the spot type and compare to config file
 	return false, nil
 }
-func checkMember(spot Spot) string {
+func checkMember(spot Spot) (string, bool) {
 
 	member := false
 	callsign := strings.ToUpper(spot.Callsign)
 
 	if callsign == "K5KAB" {
-		return "# <:hamspot:1299208521316962376>🥃__**KB SPOTTED**__🥃<:hamspot:1299208521316962376>"
+		return "# <:hamspot:1299208521316962376>🥃__**KB SPOTTED**__🥃<:hamspot:1299208521316962376>", true
 	}
 	it := Redis.Scan(ctx, 0, fmt.Sprintf("members:*%s*", callsign), 10).Iterator()
 	for it.Next(ctx) {
@@ -132,9 +133,9 @@ func checkMember(spot Spot) string {
 	}
 	// Check if the user is a member
 	if member {
-		return "# <:hamspot:1299208521316962376>__**MEMBER SPOTTED**__<:hamspot:1299208521316962376>"
+		return "# <:hamspot:1299208521316962376>__**MEMBER SPOTTED**__<:hamspot:1299208521316962376>", true
 	} else {
-		return "## <:hamspot:1299208521316962376> New Spot"
+		return "## <:hamspot:1299208521316962376> New Spot", false
 	}
 }
 
@@ -284,15 +285,16 @@ func processMessages() {
 		}
 
 		// Send the message
-		// TODO: raw_message, err := Discord.ChannelMessageSend(discordmessage.Channel, discordmessage.Message)
+		raw_message, err := Discord.ChannelMessageSend(discordmessage.Channel, discordmessage.Message)
 		if err != nil {
 			log.Println("Something went wrong sending message to discord", err)
+			continue
 		}
-		// TODO: log.Printf("Sent message to %s - message id %s (%s)", channel, raw_message.ID, discordmessage.Message)
+		log.Printf("Sent message to %s - message id %s (%s)", channel, raw_message.ID, discordmessage.Message)
 	}
 }
 
-func sendSpot(channel string, spot Spot) {
+func sendSpot(channel string, memberChannel string, spot Spot) {
 
 	// We need to have a frequency of 54MHz or less
 	freq, err := strconv.Atoi(spot.Frequency)
@@ -323,8 +325,11 @@ func sendSpot(channel string, spot Spot) {
 	// If callsign-mode-frequency isnt in redis, treat it as a message we want to send
 	if exists == 0 {
 		// Set header based on if person is a member of discord or not
-		header := checkMember(spot)
-
+		header, member := checkMember(spot)
+		_channel := channel
+		if member {
+			_channel = memberChannel
+		}
 		// Create a message to send to discord
 		message := fmt.Sprintf(`%s
 **Callsign:** [%s](https://www.qrz.com/db/%s)
@@ -335,7 +340,7 @@ func sendSpot(channel string, spot Spot) {
 			message += fmt.Sprintf("**Park:** 🏞️ [%s](https://pota.app/#/park/%s) (%s - %s)", spot.POTAPark, spot.POTAPark, spot.POTARegion, spot.POTADescription)
 		}
 		// Send it to discord
-		sendMessage(channel, message)
+		sendMessage(_channel, message)
 
 		// add to discord
 		err = Redis.Set(ctx, strings.ToUpper(spot.Callsign)+"-"+strings.ToLower(spot.Mode)+"-"+spot.Frequency, true, SpotTTL).Err()
@@ -375,7 +380,7 @@ func WebHookHandlerForHamAlert(w http.ResponseWriter, r *http.Request) {
 	if payload.Source == "POTA" {
 		log.Println("Got a POTA spot. Ignoring as we shouldn't get this from ham alert")
 	} else {
-		go sendSpot(channel, spot)
+		go sendSpot(channel, memberChannel, spot)
 	}
 
 }
@@ -451,7 +456,7 @@ func PotaSpots() {
 			continue
 		}
 
-		sendSpot(channel, spot)
+		sendSpot(channel, memberChannel, spot)
 
 	}
 }
@@ -477,7 +482,10 @@ func main() {
 	if channel == "" {
 		log.Fatal("Environment variable HAM_DISCORD_SPOTTING_BOT_CHANNEL not set. Unable to send to channels. Exiting.")
 	}
-
+	memberChannel = os.Getenv("HAM_DISCORD_SPOTTING_BOT_MEMBER_CHANNEL")
+	if memberChannel == "" {
+		log.Fatal("Environment variable HAM_DISCORD_SPOTTING_BOT_MEMBER_CHANNEL not set. Unable to send to channels. Exiting.")
+	}
 	// Start Discord polling for usernames
 	go func() {
 		// Create a ticker that ticks every 60 minutes
