@@ -424,7 +424,11 @@ func PotaSpots() {
 	}
 	for _, pota_spot := range spots {
 		// Create spot instance from POTASpot
-		log.Println(pota_spot.SpotID)
+		log.Println("Working on spot: ", pota_spot.SpotID)
+		if pota_spot.LocationDesc == nil {
+			str := " "
+			pota_spot.LocationDesc = &str
+		}
 		spot := Spot{
 			Callsign:        pota_spot.Activator,
 			Mode:            *pota_spot.Mode,
