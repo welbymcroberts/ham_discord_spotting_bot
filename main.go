@@ -120,14 +120,15 @@ func checkSpotRecent(spot Spot) (bool, error) {
 	return false, nil
 }
 func checkMember(spot Spot) (string, bool) {
-
+	
+	memberprefix := os.Getenv("HAM_DISCORD_SPOTTING_BOT_MEMBERPREFIX")
 	member := false
 	callsign := strings.ToUpper(spot.Callsign)
 
 	if callsign == "K5KAB" {
 		return "# <:hamspot:1299208521316962376>🥃__**KB SPOTTED**__🥃<:hamspot:1299208521316962376>", true
 	}
-	it := Redis.Scan(ctx, 0, fmt.Sprintf("members:*%s*", callsign), 10).Iterator()
+	it := Redis.Scan(ctx, 0, fmt.Sprintf("%s:*%s*", memberprefix, callsign), 10).Iterator()
 	for it.Next(ctx) {
 		member = true
 	}
@@ -140,6 +141,7 @@ func checkMember(spot Spot) (string, bool) {
 }
 
 func getGuildMembers() error {
+	memberprefix := os.Getenv("HAM_DISCORD_SPOTTING_BOT_MEMBERPREFIX")
 	guildID := os.Getenv("HAM_DISCORD_SPOTTING_BOT_GUILD")
 	if guildID == "" {
 		return errors.New("HAM_DISCORD_SPOTTING_BOT_GUILD is empty")
@@ -159,10 +161,10 @@ func getGuildMembers() error {
 		for _, member := range members {
 
 			// is it in redis already?
-			_, err := Redis.Get(ctx, "members:"+strings.ToUpper(member.Nick)).Result()
+			_, err := Redis.Get(ctx, memberprefix+":"+strings.ToUpper(member.Nick)).Result()
 			if errors.Is(err, redis.Nil) {
 				// Add member if it's not
-				err = Redis.Set(ctx, "members:"+strings.ToUpper(member.Nick), true, 24*time.Hour).Err()
+				err = Redis.Set(ctx, memberprefix+":"+strings.ToUpper(member.Nick), true, 24*time.Hour).Err()
 				if err != nil {
 					log.Printf("error adding member to list: %v", err)
 				}
@@ -171,10 +173,10 @@ func getGuildMembers() error {
 			}
 
 			// is it in redis already?
-			_, err = Redis.Get(ctx, "members:"+strings.ToUpper(member.DisplayName())).Result()
+			_, err = Redis.Get(ctx, memberprefix+":"+strings.ToUpper(member.DisplayName())).Result()
 			if errors.Is(err, redis.Nil) {
 				// Add member if it's not
-				err = Redis.Set(ctx, "members:"+strings.ToUpper(member.DisplayName()), true, 24*time.Hour).Err()
+				err = Redis.Set(ctx, memberprefix+":"+strings.ToUpper(member.DisplayName()), true, 24*time.Hour).Err()
 				if err != nil {
 					log.Printf("error adding member to list: %v", err)
 				}
@@ -183,10 +185,10 @@ func getGuildMembers() error {
 			}
 
 			// is it in redis already?
-			_, err = Redis.Get(ctx, "members:"+strings.ToUpper(member.User.Username)).Result()
+			_, err = Redis.Get(ctx, memberprefix+":"+strings.ToUpper(member.User.Username)).Result()
 			if errors.Is(err, redis.Nil) {
 				// Add member if it's not
-				err = Redis.Set(ctx, "members:"+strings.ToUpper(member.User.Username), true, 24*time.Hour).Err()
+				err = Redis.Set(ctx, memberprefix+":"+strings.ToUpper(member.User.Username), true, 24*time.Hour).Err()
 				if err != nil {
 					log.Printf("error adding member to list: %v", err)
 				}
@@ -195,10 +197,10 @@ func getGuildMembers() error {
 			}
 
 			// is it in redis already?
-			_, err = Redis.Get(ctx, "members:"+strings.ToUpper(member.User.GlobalName)).Result()
+			_, err = Redis.Get(ctx, memberprefix+":"+strings.ToUpper(member.User.GlobalName)).Result()
 			if errors.Is(err, redis.Nil) {
 				// Add member if it's not
-				err = Redis.Set(ctx, "members:"+strings.ToUpper(member.User.GlobalName), true, 24*time.Hour).Err()
+				err = Redis.Set(ctx, memberprefix+":"+strings.ToUpper(member.User.GlobalName), true, 24*time.Hour).Err()
 				if err != nil {
 					log.Printf("error adding member to list: %v", err)
 				}
@@ -295,6 +297,7 @@ func processMessages() {
 }
 
 func sendSpot(channel string, memberChannel string, spot Spot) {
+	memberprefix := os.Getenv("HAM_DISCORD_SPOTTING_BOT_MEMBERPREFIX")
 
 	// We need to have a frequency of 54MHz or less
 	freq, err := strconv.Atoi(spot.Frequency)
@@ -316,7 +319,7 @@ func sendSpot(channel string, memberChannel string, spot Spot) {
 	}
 
 	// Check if the callsign has been spotted recently
-	exists, err := Redis.Exists(ctx, strings.ToUpper(spot.Callsign)+"-"+strings.ToLower(spot.Mode)+"-"+spot.Frequency).Result()
+	exists, err := Redis.Exists(ctx, memberprefix+":"+strings.ToUpper(spot.Callsign)+"-"+strings.ToLower(spot.Mode)+"-"+spot.Frequency).Result()
 	if err != nil {
 		log.Printf("Error checking callsign spot in Redis: %v", err)
 		return
@@ -343,7 +346,7 @@ func sendSpot(channel string, memberChannel string, spot Spot) {
 		sendMessage(_channel, message)
 
 		// add to discord
-		err = Redis.Set(ctx, strings.ToUpper(spot.Callsign)+"-"+strings.ToLower(spot.Mode)+"-"+spot.Frequency, true, SpotTTL).Err()
+		err = Redis.Set(ctx, memberprefix+":"+strings.ToUpper(spot.Callsign)+"-"+strings.ToLower(spot.Mode)+"-"+spot.Frequency, true, SpotTTL).Err()
 		if err != nil {
 			log.Printf("Error storing spot in Redis: %v", err)
 		}
