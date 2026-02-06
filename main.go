@@ -319,7 +319,7 @@ func sendSpot(channel string, memberChannel string, spot Spot) {
 	}
 
 	// Check if the callsign has been spotted recently
-	exists, err := Redis.Exists(ctx, memberprefix+":"+strings.ToUpper(spot.Callsign)+"-"+strings.ToLower(spot.Mode)+"-"+spot.Frequency).Result()
+	exists, err := Redis.Exists(ctx, memberprefix+"spot:"+strings.ToUpper(spot.Callsign)+"-"+strings.ToLower(spot.Mode)+"-"+spot.Frequency).Result()
 	if err != nil {
 		log.Printf("Error checking callsign spot in Redis: %v", err)
 		return
@@ -343,10 +343,10 @@ func sendSpot(channel string, memberChannel string, spot Spot) {
 			message += fmt.Sprintf("**Park:** 🏞️ [%s](https://pota.app/#/park/%s) (%s - %s)", spot.POTAPark, spot.POTAPark, spot.POTARegion, spot.POTADescription)
 		}
 		// Send it to discord
-		sendMessage(_channel, message)
-
+		//sendMessage(_channel, message)
+		log.Printf("Sending to %s - %s", _channel, message)
 		// add to discord
-		err = Redis.Set(ctx, memberprefix+":"+strings.ToUpper(spot.Callsign)+"-"+strings.ToLower(spot.Mode)+"-"+spot.Frequency, true, SpotTTL).Err()
+		err = Redis.Set(ctx, memberprefix+"spot:"+strings.ToUpper(spot.Callsign)+"-"+strings.ToLower(spot.Mode)+"-"+spot.Frequency, true, SpotTTL).Err()
 		if err != nil {
 			log.Printf("Error storing spot in Redis: %v", err)
 		}
