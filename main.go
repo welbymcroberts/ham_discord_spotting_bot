@@ -343,8 +343,8 @@ func sendSpot(channel string, memberChannel string, spot Spot) {
 			message += fmt.Sprintf("**Park:** 🏞️ [%s](https://pota.app/#/park/%s) (%s - %s)", spot.POTAPark, spot.POTAPark, spot.POTARegion, spot.POTADescription)
 		}
 		// Send it to discord
-		//sendMessage(_channel, message)
 		log.Printf("Sending to %s - %s", _channel, message)
+		sendMessage(_channel, message)
 		// add to discord
 		err = Redis.Set(ctx, memberprefix+"spot:"+strings.ToUpper(spot.Callsign)+"-"+strings.ToLower(spot.Mode)+"-"+spot.Frequency, true, SpotTTL).Err()
 		if err != nil {
